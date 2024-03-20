@@ -20,14 +20,14 @@ rm(list=ls())
 # ================================================ USER INTERACTION ========================================= #
 
 # --- Where is your data stored?
-directory <- "C:\\Users\\mariu\\OneDrive\\Skrivebord\\UNI\\8. semester\\Economic forecasting\\Project\\Data\\NOAA"
+directory <- "C:\\Users\\mariu\\OneDrive\\Skrivebord\\UNI\\8. semester\\Economic forecasting\\Project\\Data\\Raw"
 
 #   Which variable do you want to extract? TCC == Total Cloud Cover; AT == Air Temp; Precip == Precipitation
 I.want <- "AT"
 
 #   Which region (latitude-wise) do you want to average over? (default = 30), Pan-Arctic = 60
 #   ----> define it as "degrees north", i.e. if you want the whole grid/globe: degrees.n <- -90
-degrees.n <- 30
+degrees.n <- -90
 
 # ================================================ USER INTERACTION ========================================= #
 

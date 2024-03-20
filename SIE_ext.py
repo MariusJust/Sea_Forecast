@@ -1,7 +1,9 @@
-##This script downloads the newest updated values of north sea ice extent from NOAA. It saves the csv file to the current directory. 
-
+##This script downloads the newest updated values of sea ice extent from NOAA. It saves the csv file to the current directory. 
 import requests
 import os
+
+#North=Northern Hemisphere Sea Ice Extent, 
+I_want="North"
 
 file_url = "https://noaadata.apps.nsidc.org/NOAA/G02135/north/daily/data/N_seaice_extent_daily_v3.0.csv"
 
