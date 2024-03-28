@@ -81,6 +81,20 @@ ds_data <- data.frame(
   SL_ds = SL_ds
 )
 
+# testing for unit root 
+unit_root <- adf.test(SL_ds)
+unit_root1 <- adf.test(CO2_ds)
+unit_root1 <- adf.test(AT_ds, type=c("trend"))
+
+#The null hypothesis can't be rejected, therefore both time series are non-stationary
+
+#creating a deseasonalised dataset
+
+stationary_data <-data.frame(  # Assuming the time series is monthly
+  CO2_ds = diff(CO2_ds),
+  SL_ds = diff(SL_ds)
+)
+
 
 # Reshape the dataframe for easier plotting
 melted_data <- pivot_longer(ds_data, cols = -Month, names_to = "Variable", values_to = "Deseasonalized_Value")
@@ -92,15 +106,6 @@ ggplot(melted_data, aes(x = Month, y = Deseasonalized_Value, color = Variable)) 
   ggtitle("Deseasonalized Time Series Plot") +
   theme_minimal() +
   facet_wrap(~ Variable, nrow = 4, scales = "free_y")  # Stacking plots vertically with free y-axis scales
-
-
-
-# testing for unit root 
-
-unit_root <- adf.test(SL_ds)
-unit_root1 <- adf.test(CO2_ds)
-
-#The null hypothesis can't be rejected, therefore both time series are non-stationary
 
 
 # ===================================== Creating test and training data ===================================== #
@@ -123,51 +128,67 @@ test_data <- ds_data[(n_train+1):n,]
 
 # ===================================== Random Forrest ===================================== #
 
-# Create lagged data
 
-lag_order <- 2
 
-SL_ts_full <- embed(ds_data$SL_ds, lag_order+1)
-#embedding the training data 
-SL_ts_mbd <- embed(train_data$SL_ds, lag_order+1)
+# Feature enginering 
 
-#The target column
-y_train <- SL_ts_mbd[, 1] # the target
+
+lag_order <- 6
+
+rf_data <- as.matrix(ds_data[,c("SL_ds", "CO2_ds")])
+
+#fully  embedded data
+ts_full <- embed(rf_data, lag_order+1)
+
+n_rf_train <- n_train-lag_order*(ncol(ts_full)/(lag_order+1))
+
+y_train <- ts_full[1:n_rf_train, 1] # the target
 
 #Containing the 6 lags of SL as it is the target variable
-X_train <- SL_ts_mbd[, -1] # everything but the target
-
-# There is one overlapping value between the test and training set but that should not be a major concern 
-y_test <- window(test_data$SL_ds) 
-X_test <- SL_ts_full[nrow(SL_ts_mbd)+1, c(1:lag_order)] # the test set consisting # of the six most recent values (we have six lags) of the training set. 
+X_train <- ts_full[1:n_rf_train, -1] # everything but the target
 
 
+X_test <- ts_full[n_rf_train, c(2:14)] # the test set consisting # of the six most recent values (we have six lags) of the training set. 
 
-for (i in 1:2){
+forecasts_rf<-numeric(74)
+
+
+for (i in 1:n_windows){
   # set seed
   set.seed(2019)
   # fit the model
-
-  fit_rf <- randomForest(X_train, y_train)
   
+  
+  fit_rf <- randomForest(X_train, y_train, ntree=1000)
   # predict using the test set
   forecasts_rf[i] <- predict(fit_rf, X_test)
   
   
   # here is where we repeatedly reshape the training data to reflect the time distance
   # corresponding to the current forecast horizon.
-  y_train <- y_train[-1] 
-  X_train <- X_train[-nrow(X_train), ] 
+  y_train <- ts_full[i:(n_rf_train+i), 1]
+  X_train <- ts_full[i:(n_rf_train+i), -c(1)]
   
-  print(tail(y_train))
-  print(tail(X_train))
-  X_test <- SL_ts_full[nrow(SL_ts_mbd)+i, c(1:lag_order)]
-  print(X_test)
+  
+  X_test <- ts_full[n_rf_train+i, c(2:14)]
+  
   
 }
 
 
+postResample(forecasts_rf,outcome)
+
+
+
+
 # ===================================== Rolling window forecast ===================================== #
+
+#Parameters for Random Forest 
+lag_order <- 6
+#fully  embedded data
+SL_ts_full <- embed(ds_data$SL_ds, lag_order+1)
+n_rf_train <- n_train-lag_order*(ncol(SL_ts_full)/(lag_order+1))
+
 
 
 # = Number of windows and window size
@@ -201,25 +222,36 @@ forecasts = foreach(i=1:n_windows, .combine = rbind) %do%{
   f4 <- data.frame(predict(VECM, n.ahead=1))
   
   # Random Forest 
-
+  
+    set.seed(2019)
+    y_train <- SL_ts_full[i:(n_rf_train+i-1), 1]
+    X_train <- SL_ts_full[i:(n_rf_train+i-1), -1]
+    X_test <- SL_ts_full[n_rf_train+i-1, c(1:lag_order)]
+    fit_rf <- randomForest(X_train, y_train, ntree=1000)
+    
+    # predict using the test set
+    f5 <- predict(fit_rf, X_test)
+    
   
   # Random Walk #
-  f5 = tail(X_in$SL_ds, 1)
+  f6 = tail(X_in$SL_ds, 1)
   
-  return(c(f1, f2, f3$mean, f4$SL_ds, f5))
+  return(c(f1, f2, f3$mean, f4$SL_ds, f5, f6))
 }
 
 result_matrix<-data.frame(cbind(forecasts, test_data$SL_ds, test_data$Month))
 
-colnames(result_matrix) <- c("LM1", "LM2", "ARIMA", "VECM", "RW", "Actual", "Month")
+colnames(result_matrix) <- c("LM1", "LM2", "ARIMA", "VECM", "RF", "RW", "Actual", "Month")
 
 
 # ===================================== Performance meassures ===================================== #
 
 # Define the predictors (forecasts) and the outcome (actual)
-predictors <- result_matrix[, 1:5]
+predictors <- cbind(result_matrix[, 1:6])
 outcome <- result_matrix$Actual
 
+
+postResample(forecast_rf, outcome)
 # Calculate performance metrics
 
 for (i in 1:length(predictors)){
@@ -236,7 +268,8 @@ for (i in 1:length(predictors)){
 
 # Reshape the data to long format
 forecast_df_long <- pivot_longer(result_matrix, 
-                                 cols = c(LM1, LM2, ARIMA, VECM, RW, Actual), 
+                                 #LM1, LM2, ARIMA, VECM,
+                                 cols = c( RW, RF, Actual), 
                                  names_to = "Variable", 
                                  values_to = "Value")
 
@@ -303,15 +336,6 @@ forecast_VECM$SL_ds
 
 
 
-# ===================================== Plotting our models ===================================== #
-
-# Combine forecasts into a dataframe
-forecast_df <- data.frame(Actual = test_data$SL_ds, 
-                          Random_walk = forecast_RW,
-                          Forecast_CO2 = forecast_CO2, 
-                          #forecast_VECM = forecast_VECM$SL,
-                          #Forecast_Combined = forecast_combined,
-                          time = test_data$Month)
 
 
 
@@ -320,57 +344,3 @@ forecast_df <- data.frame(Actual = test_data$SL_ds,
 
 
 
-
-
-
-
-
-
-
-
-#
-
-#we hav
-
-
-
-acf(SL_ds_diff)
-pacf(train_data)
-
-
-
-# Forecast using the ARIMA model on test data
-forecast_test <- forecast(arima_model, h = length(test_data))
-
-
-
-test_ts <- ts(test_data, start = start(test_data))
-
-# Create a data frame containing actual and forecasted values
-plot_data <- data.frame(
-  Date = time(test_ts),
-  Actual = as.numeric(test_ts),
-  Forecast = forecast_test$mean
-)
-
-# Plot the real data vs the forecast data
-ggplot(plot_data, aes(x = Date)) +
-  geom_line(aes(y = Actual, color = "Actual"), size = 1) +
-  geom_line(aes(y = Forecast, color = "Forecast"), size = 1, linetype = "dashed") +
-  labs(y = "SL Deseasonalized", color = "Data", title = "Forecast vs Actual Data") +
-  theme_minimal() +
-  theme(legend.position = "bottom")
-
-
-
-
-
-
-
-
-
-
-
-
-accuracy_test <- accuracy(forecast_test, x = test_data)
-accuracy_test
