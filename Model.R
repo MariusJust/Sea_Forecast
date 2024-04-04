@@ -71,7 +71,7 @@ residuals <- resid(fit.SL)
 SL_ds <- residuals
 
 
-# ===================================== Plotting deseasonalised data ===================================== #
+# ===================================== Data preperation and plotting ===================================== #
 
 ds_data <- data.frame(
   Month = 1:length(SIE_ds),  # Assuming the time series is monthly
@@ -84,17 +84,16 @@ ds_data <- data.frame(
 # testing for unit root 
 unit_root <- adf.test(SL_ds)
 unit_root1 <- adf.test(CO2_ds)
-unit_root1 <- adf.test(AT_ds, type=c("trend"))
+
 
 #The null hypothesis can't be rejected, therefore both time series are non-stationary
 
-#creating a deseasonalised dataset
+#creating a stationary dataset
 
 stationary_data <-data.frame(  # Assuming the time series is monthly
   CO2_ds = diff(CO2_ds),
   SL_ds = diff(SL_ds)
 )
-
 
 # Reshape the dataframe for easier plotting
 melted_data <- pivot_longer(ds_data, cols = -Month, names_to = "Variable", values_to = "Deseasonalized_Value")
@@ -176,9 +175,6 @@ for (i in 1:n_windows){
 }
 
 
-postResample(forecasts_rf,outcome)
-
-
 
 
 # ===================================== Rolling window forecast ===================================== #
@@ -251,9 +247,6 @@ predictors <- cbind(result_matrix[, 1:6])
 outcome <- result_matrix$Actual
 
 
-postResample(forecast_rf, outcome)
-# Calculate performance metrics
-
 for (i in 1:length(predictors)){
   
   performance <- postResample(predictors[i], outcome)
@@ -286,8 +279,6 @@ ggplot(forecast_df_long, aes(x = Month, y = Value, color = Variable)) +
 model_combined <- lm(SL_ds ~ AT_ds + CO2_ds + SIE_ds)
 summary(model_combined)
 
-
-
 #cointegration between CO2 and SL
 
 residuals <- resid(model_CO2)
@@ -299,36 +290,6 @@ summary(adf_test)
 
 
 
-# ===================================== VECM model ===================================== #
-
-#Binding CO2 and SL 
-dset <- cbind(SL, CO2)
-
-#lag selection Criteria 
-
-lagselect <- VARselect(dset, lag.max = 7)
-lagselect$selection
-
-#Model suggests using 7 lags, so we use 7-1=6 lags
-
-#Johansen testing (Trace)
-
-ctest <- ca.jo(dset, type="trace", ecdet="const", K=6, season=12)
-summary(ctest)
-
-#rejecting nullhypothesis, so we see that we have 1 cointegrating relationship 
-
-# building VECM model - we only use the training observations for this
-
-
-VECM<-VECM(ds_data[1:n_train, c("SL_ds", "CO2_ds")], lag=6, r=1)
-summary(VECM)
-
-forecast_VECM <- data.frame(predict(VECM, n.ahead=1))
-
-forecast_VECM$SL_ds
-
-# ===================================== Random Forrest ===================================== #
 
 
 
