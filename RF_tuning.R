@@ -177,3 +177,7 @@ for (lag_order in lag_orders) {
 # Print results
 print(results)
 
+
+
+#min value is obtained with 500 trees and 7 lags
+

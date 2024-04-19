@@ -12,10 +12,11 @@ cat("\014")
 graphics.off()  # clear all graphs
 rm(list = ls()) # remove all files from your workspace
 
-pacman::p_load(pacman, urca, vars, tsDyn,forecast,readxl,xts, ggfortify,stargazer, tseries, ggplot2, tidyr, caret,  dplyr, foreach, randomForest, kableExtra) #installing neccesary packages 
+pacman::p_load(pacman, urca, vars, tsDyn,forecast,readxl,xts, ggfortify,stargazer, tseries, ggplot2, tidyr, caret,  dplyr, foreach, randomForest, kableExtra, keras, ModelMetrics, xlsx) #installing neccesary packages 
 
 data <-read_excel("C:\\Users\\mariu\\OneDrive\\Skrivebord\\UNI\\8. semester\\Economic forecasting\\Project\\Data\\Processed\\Final.xlsx") #Change to your own directory
 
+source("C:\\Users\\mariu\\OneDrive\\Skrivebord\\UNI\\8. semester\\Economic forecasting\\Project\\Code\\gw.test.R")
 
 n <- nrow(data)
 
@@ -26,8 +27,6 @@ SIE <-ts(data$SIE, freq=12, start=1993)
 CO2 <-ts(data$CO2, freq=12, start=1993)
 AT <-ts(data$AT, freq=12, start=1993)
 SL <-ts(data$GMSL, freq=12, start=1993)
-
-
 
 
 # ===================================== Test for seasonal behavior ===================================== #
@@ -96,11 +95,10 @@ ds_data <- data.frame(
   Month = 1:length(CO2_ds),  # Assuming the time series is monthly
   CO2 = CO2_ds,
   AT = AT_ds,
-  SL= SL_ds
+  SL= ts(SL_ds)
 )
 
 #stationary data 
-
 stationary_data <- data.frame(
   Month = 1:length(diff_CO2),  # Assuming the time series is monthly
   CO2 = diff_CO2,
@@ -142,8 +140,8 @@ test_data <- stationary_data[(n_train+1):n,]
 # ===================================== Rolling window forecast - stationary part ===================================== #
 
 #Parameters for Random Forest 
-lag_order <- 6
-ntree <- 1000
+lag_order <- 7
+ntree <- 500
 
 
 #fully  embedded data
@@ -189,7 +187,21 @@ forecasts_s = foreach(i=1:n_windows, .combine = rbind) %do%{
 }
 
 
-# ===================================== Creating test and training data - nonstationary data ===================================== #
+# =====================================       Testing for cointegration between SL and CO2   ===================================== #
+
+model_CO2 <- tslm(ts(SL) ~ ts(CO2), data=ds_data)
+
+residuals <- resid(model_CO2)
+
+#testing for cointegration
+plot(residuals)
+adf_test<-ur.df(residuals, type="none", selectlags = "AIC")
+summary(adf_test)
+
+#The test supports cointegration between the deseasonalised data. 
+
+
+# ===================================== Creating test and training data - for cointegration data ===================================== #
 
 #Splitting up into a training, validation and test-set 
 train_prop <-0.8 
@@ -207,7 +219,7 @@ test_data <- ds_data[(n_train+1):n,]
 
 
 
-# ===================================== Rolling window forecast - nonstationary part ===================================== #
+# ===================================== Rolling window forecast - cointegration part ===================================== #
 
 # = Number of windows and window size
 w_size = n_train
@@ -243,8 +255,13 @@ result_matrix<-data.frame(cbind(forecasts_s,forecasts_ns, test_data$SL, test_dat
 
 colnames(result_matrix) <- c("ARIMA", "RF", "LM1", "LM2", "VECM", "RW", "Actual", "Month")
 
+# ===================================== Creating an excel file for reference ===================================== #
 
+# Specify the file path for the Excel file
+file_path <- "result_matrix.xlsx"  # Adjust the file name as needed
 
+# Write the result matrix to an Excel file
+write.xlsx(result_matrix, file_path, row.names = FALSE)
 
 # ===================================== Performance meassures ===================================== #
 
@@ -287,6 +304,8 @@ for (i in 1:ncol(predictors)) {
     }
   }
 }
+
+SL_ds_diff
 
 
 
@@ -352,11 +371,18 @@ formatted_table <- gsub('<td>', '<td style="text-align: left;">', formatted_tabl
  
 
 
+### Doing Giacomini & White test of Predictive Ability 
+
+#Testing whether the VECM estimator has greater predictive ability than the Arima estimator. This is rejected on a 5% significance, p=0,178
+gw.test(result_matrix$VECM,result_matrix$ARIMA,result_matrix$Actual, T=74, tau=1, alternative="greater")
+
+
+
 # ===================================== Plotting data ===================================== #
 
 # Reshape the data to long format
 forecast_df_long <- pivot_longer(result_matrix, 
-                                 cols = c(ARIMA_levels, RF_levels, Actual), 
+                                 cols = c(ARIMA, RF, Actual), 
                                  names_to = "Variable", 
                                  values_to = "Value")
 
