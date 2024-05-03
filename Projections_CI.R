@@ -170,7 +170,7 @@ conditional <- function (case){
   
   # Predict values for our statespace model- sea level values
   # Predict values for our statespace model
-  SL<-predict(K2,interval = "confidence", level = 0.6 )[[1]]
+  SL<-predict(K2,interval = "confidence", level = 0.95 )[[1]]
   predict(K2,interval = "confidence", level = 0.6 )[[1]] %>% 
     #convert to time series
     ts %>% 
@@ -184,40 +184,56 @@ conditional <- function (case){
     annotate(geom="text",x=40.5,y=0, label="Forecasts for X available, \nY unobserved",hjust=0)
   
   SL_fit<-cumsum(SL[,1])
+  lwr_diff <- cumsum(SL[,2] - SL[,1])
+  upr_diff <- cumsum(SL[,3] - SL[,1])
+  
+  # Add the differences to the fitted values in the original series
+  SL_lwr <- SL_fit + lwr_diff
+  SL_upr <- SL_fit + upr_diff
+  
+  plot_data <- data.frame(Time = time(SL_fit), Fit = SL_fit, Lwr = SL_lwr, Upr = SL_upr)
   
   
-  return(SL_fit)
+  
+  
+  return(plot_data)
   
 }
 
 
 
-worst_case <- ts(conditional("WC"), start=1993, freq=12)
-best_case <- ts(conditional("BC"), start=1993, freq=12)
+Worst_case <- ts(conditional("WC"), start=1993, freq=12)
+Best_case <- ts(conditional("BC"), start=1993, freq=12)
 Bau <- ts(conditional(""), start=1993, freq=12)
 
-# Create a data frame with the time series data
-plot_data <- data.frame(
-  Time = time(best_case),
-  Best_Case = best_case,
-  Worst_Case = worst_case,
-  Business_as_Usual = Bau
-)
 
-# Add a new column to your data frame for the line color
-plot_data$line_color <- ifelse(plot_data$Time < as.numeric(2024), "Observations", "Business as usual")
+worst_case_df <- data.frame(Time = time(Worst_case), Fitted = Worst_case[,2], Lwr = Worst_case[,3], Upr = Worst_case[,4])
+best_case_df <- data.frame(Time = time(Best_case), Fitted = Best_case[,2], Lwr = Best_case[,3], Upr = Best_case[,4])
+bau_df <- data.frame(Time = time(Bau), Fitted = Bau[,2], Lwr = Bau[,3], Upr = Bau[,4])
 
-ggplot(plot_data, aes(x = Time)) +
-  geom_line(aes(y = Best_Case, color = "Best Case")) +
-  geom_line(aes(y = Worst_Case, color = "Worst Case")) +
-  geom_line(aes(y = Business_as_Usual, color = line_color)) +  # Use the new line_color column here
-  labs(x = "Time", y = "Value", title = "Projections of Sea Level") +
-  scale_color_manual(values = c("Best Case" = "blue", "Worst Case" = "red", "Observations" = "black", "Business as usual" = "green")) +  # Add a new color mapping for "Pre-2024"
-  theme_minimal() +
-  geom_vline(xintercept = as.numeric(2024), linetype="dashed") 
+worst_case_df$is_observation <- ifelse(worst_case_df$Time <= 372, "Observations", "Projections")
+best_case_df$is_observation <- ifelse(best_case_df$Time <= 372, "Observations", "Projections")
+bau_df$is_observation <- ifelse(bau_df$Time <= 372, "Observations", "Projections")
 
-
-
+# Plot the data
+ggplot() +
+  # Worst case
+  geom_line(data = worst_case_df, aes(x = Time, y = Fitted, color = "Worst Case"), size = 0.2) +
+  geom_ribbon(data = worst_case_df, aes(x = Time, ymin = Lwr, ymax = Upr, fill = "Worst Case"), alpha = 0.2) +
+  # Best case
+  geom_line(data = best_case_df, aes(x = Time, y = Fitted, color = "Best Case"), size = 0.2) +
+  geom_ribbon(data = best_case_df, aes(x = Time, ymin = Lwr, ymax = Upr, fill = "Best Case"), alpha = 0.2) +
+  # BAU case
+  geom_line(data = bau_df, aes(x = Time, y = Fitted, color = "Bau"), size = 0.2) +
+  geom_ribbon(data = bau_df, aes(x = Time, ymin = Lwr, ymax = Upr, fill = "Bau"), alpha = 0.2) +
+  labs(x = "Time", y = "GMSL") +
+  scale_color_manual(values = c("Worst Case" = "red", "Best Case" = "blue", "Bau" = "dark green", "black"), name="Scenarios") +
+  scale_fill_manual(values = c("Worst Case" = "red", "Best Case" = "blue", "Bau" = "green")) +
+  theme_minimal()+
+  guides(fill = FALSE) +
+  geom_vline(xintercept = 2024, linetype = "dotted")
+  
+  
 
 
 

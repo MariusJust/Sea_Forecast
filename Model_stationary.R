@@ -25,65 +25,52 @@ n <- nrow(data)
 
 SIE <-ts(data$SIE, freq=12, start=1993)
 CO2 <-ts(data$CO2, freq=12, start=1993)
-AT <-ts(data$AT, freq=12, start=1993)
+SST <-ts(data$AT, freq=12, start=1993)
 SL <-ts(data$GMSL, freq=12, start=1993)
-
-
-# ===================================== Test for seasonal behavior ===================================== #
-
-#including trend to avoid omitted variable bias
-fit.SIE <- tslm(SIE ~ season + trend)
-summary(fit.SIE)
-
-fit.CO2 <- tslm(CO2 ~ season + trend)
-summary(fit.CO2)
-
-fit.AT <- tslm(AT ~ season + trend)
-summary(fit.AT)
-
-fit.SL <- tslm(SL ~ season + trend)
-summary(fit.SL)
-
-#All variables have significant seasonal behavior, so we deseasonalise the data
 
 
 # ===================================== Stationarity ===================================== #
 
-
-
 fit.C02 <- tslm(CO2 ~ season)
+summary(fit.C02)
 residuals <- resid(fit.C02)
 CO2_ds <- residuals
+adf.test(CO2_ds)
+kpss.test(CO2)
 
 diff_CO2<-diff(CO2_ds)
 kpss.test(diff_CO2)
-adf.test(diff_CO2)
 #both tests support that CO2 is a difference stationary variable
 
-fit.AT <- tslm(AT ~ season)
-residuals <- resid(fit.AT)
-AT_ds <- residuals
+fit.SST <- tslm(SST ~ season)
+residuals <- resid(fit.SST)
+SST_ds <- residuals
 
-kpss.test(AT_ds, null=c("T"))
+kpss.test(SST_ds, null=c("T"))
 #AT is not trend stationary 
 
 
-diff_AT<-diff(AT_ds)
-kpss.test(diff_AT)
-adf.test(diff_AT)
+diff_SST<-diff(SST_ds)
+kpss.test(diff_SST)
+adf.test(diff_SST)
 #Both tests support that AT is a difference stationary variable
 
-
-
-fit.SL <- tslm(SL ~ season)
+fit.SL <- tslm(SL ~ season+trend)
+summary(fit.SL)
 residuals <- resid(fit.SL)
 SL_ds <- residuals
-
+kpss.test(SL_ds)
+adf.test(SL_ds)
 
 diff_SL<-diff(SL_ds)
 kpss.test(diff_SL)
 adf.test(diff_SL)
 #Both tests support that SL is a difference stationary variable
+
+fit.SIE <- tslm(SIE ~ season)
+summary(fit.SIE)
+residuals <- resid(fit.SIE)
+SL_ds <- residuals
 
 
 
@@ -94,7 +81,7 @@ adf.test(diff_SL)
 ds_data <- data.frame(
   Month = 1:length(CO2_ds),  # Assuming the time series is monthly
   CO2 = CO2_ds,
-  AT = AT_ds,
+  SST = SST_ds,
   SL= ts(SL_ds)
 )
 
@@ -102,7 +89,7 @@ ds_data <- data.frame(
 stationary_data <- data.frame(
   Month = 1:length(diff_CO2),  # Assuming the time series is monthly
   CO2 = diff_CO2,
-  AT= diff_AT,
+  SST= diff_SST,
   SL = diff_SL
 )
 
@@ -195,8 +182,9 @@ residuals <- resid(model_CO2)
 
 #testing for cointegration
 plot(residuals)
-adf_test<-ur.df(residuals, type="none", selectlags = "AIC")
+adf_test<-ur.df(residuals, type="trend", selectlags = "AIC")
 summary(adf_test)
+pp.test(residuals)
 
 #The test supports cointegration between the deseasonalised data. 
 
@@ -237,7 +225,7 @@ forecasts_ns = foreach(i=1:n_windows, .combine = rbind) %do%{
   f1 = predict(m1, X_out)
   
   # Combined model # 
-  m2 <- lm(SL ~ AT + CO2, data=X_in)
+  m2 <- lm(SL ~ SST + CO2, data=X_in)
   f2 <- predict(m2, X_out)
   
   # VECM model #
@@ -255,13 +243,6 @@ result_matrix<-data.frame(cbind(forecasts_s,forecasts_ns, test_data$SL, test_dat
 
 colnames(result_matrix) <- c("ARIMA", "RF", "LM1", "LM2", "VECM", "RW", "Actual", "Month")
 
-# ===================================== Creating an excel file for reference ===================================== #
-
-# Specify the file path for the Excel file
-file_path <- "result_matrix.xlsx"  # Adjust the file name as needed
-
-# Write the result matrix to an Excel file
-write.xlsx(result_matrix, file_path, row.names = FALSE)
 
 # ===================================== Performance meassures ===================================== #
 
@@ -275,7 +256,6 @@ for (i in 1:length(predictors)){
   print(names(predictors)[i])
   print(accuracy(predictors[,i],x=outcome))
 }
-
 
 
 # ===================================== Significance test ===================================== #
@@ -305,7 +285,6 @@ for (i in 1:ncol(predictors)) {
   }
 }
 
-SL_ds_diff
 
 
 
@@ -369,32 +348,30 @@ formatted_table <- kable(result_df, format="html", digits=3, align =rep('l',7)) 
 formatted_table <- gsub('<td>', '<td style="text-align: left;">', formatted_table)
 
  
-
-
 ### Doing Giacomini & White test of Predictive Ability 
 
 #Testing whether the VECM estimator has greater predictive ability than the Arima estimator. This is rejected on a 5% significance, p=0,178
 gw.test(result_matrix$VECM,result_matrix$ARIMA,result_matrix$Actual, T=74, tau=1, alternative="greater")
 
+#Testing whether the LM1 model has greater predictive ability than the LM2 model. This is rejected on a 5% significance, p=0,1732
+gw.test(result_matrix$LM2,result_matrix$LM1,result_matrix$Actual, T=74, tau=1, alternative="greater")
 
 
-# ===================================== Plotting data ===================================== #
+#Clark & West 
+#linear model
+temp1 <- dm_cw(residuals_matrix[,c("LM1")],residuals_matrix[,c("LM2")])
 
-# Reshape the data to long format
-forecast_df_long <- pivot_longer(result_matrix, 
-                                 cols = c(ARIMA, RF, Actual), 
-                                 names_to = "Variable", 
-                                 values_to = "Value")
-
-# Plot
-ggplot(forecast_df_long, aes(x = Month, y = Value, color = Variable)) +
-  geom_line() +
-  labs(title = "Forecast Comparison",
-       x = "Month",
-       y = "Value") +
-  theme_minimal()
+#ARIMA and VECM model
+temp2 <- dm_cw(residuals_matrix[,c("ARIMA")],residuals_matrix[,c("VECM")])
 
 
+# ===================================== Creating an excel file for reference ===================================== #
+
+# Specify the file path for the Excel file
+file_path <- "result_matrix.xlsx"  # Adjust the file name as needed
+
+# Write the result matrix to an Excel file
+write.xlsx(result_matrix, file_path, row.names = FALSE)
 
 
 
